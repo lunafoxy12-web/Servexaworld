@@ -10,6 +10,7 @@ interface AuthContextType {
   setActiveView: (view: 'customer' | 'provider' | 'admin') => void;
   login: (email: string, password?: string) => Promise<{ success: boolean; error?: string }>;
   loginWithGoogle: (roleOverride?: 'customer' | 'provider') => Promise<{ success: boolean; error?: string; cancelled?: boolean }>;
+  loginWithWallet: (walletAddress?: string, roleOverride?: 'customer' | 'provider') => Promise<{ success: boolean; error?: string; user?: User }>;
   register: (data: any) => Promise<{ success: boolean; error?: string }>;
   logout: () => void;
   refreshUser: () => Promise<void>;
@@ -70,6 +71,7 @@ interface AuthContextType {
   closeStorefrontSubdomain: () => void;
   globalRefreshKey: number;
   triggerGlobalRefresh: () => void;
+  lastRealtimeEvent: RealtimeEvent | null;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -78,23 +80,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
     const saved = localStorage.getItem('servexa_user');
     if (saved) {
-      try { return JSON.parse(saved); } catch (e) {}
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed && parsed.id) return parsed;
+      } catch (e) {}
     }
-    // Default guest starts as customer Alex Rivera for instant ready-to-test experience
-    return {
-      id: 'cust-1',
-      name: 'Alex Rivera',
-      email: 'alex.rivera@example.com',
-      phone: '+1 (415) 890-1234',
-      role: 'customer',
-      avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80',
-      status: 'active',
-      verified: true,
-      walletBalance: 320.00,
-      createdAt: '2024-02-15T10:30:00.000Z',
-      rating: 4.9,
-      totalJobs: 14
-    };
+    return null;
   });
 
   const [activeView, setActiveView] = useState<'customer' | 'provider' | 'admin'>(() => {
@@ -149,6 +140,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Direct Storefront Subdomain State
   const [activeStorefrontSubdomain, setActiveStorefrontSubdomain] = useState<string | null>(null);
   const [globalRefreshKey, setGlobalRefreshKey] = useState<number>(0);
+  const [lastRealtimeEvent, setLastRealtimeEvent] = useState<RealtimeEvent | null>(null);
   const [socket, setSocket] = useState<WebSocket | null>(null);
 
   const triggerGlobalRefresh = useCallback(() => {
@@ -242,6 +234,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Handle incoming real-time events from server
   const handleRealtimeEvent = useCallback((event: RealtimeEvent) => {
+    setLastRealtimeEvent(event);
     triggerGlobalRefresh();
 
     if (event.type === 'USER_STATUS_UPDATED') {
@@ -391,6 +384,82 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       console.warn('[Firebase Auth] Google login note:', e?.message || e);
       return { success: false, error: e.message || 'Google sign-in was not completed.' };
+    }
+  };
+
+  const loginWithWallet = async (walletAddress?: string, roleOverride: 'customer' | 'provider' = 'customer') => {
+    try {
+      let address = walletAddress;
+      // If browser has an injected Web3 wallet (MetaMask, Coinbase Wallet, Phantom, etc.)
+      if (!address && typeof window !== 'undefined' && (window as any).ethereum) {
+        try {
+          const accounts = await (window as any).ethereum.request({ method: 'eth_requestAccounts' });
+          if (accounts && accounts[0]) {
+            address = accounts[0];
+          }
+        } catch (err) {
+          console.warn('Web3 wallet account prompt dismissed or unavailable, using deterministic wallet session:', err);
+        }
+      }
+
+      // If no injected Web3 or rejected, generate a unique deterministic wallet address
+      if (!address) {
+        const hex = Array.from({ length: 4 }, () => Math.floor(Math.random() * 65536).toString(16).padStart(4, '0')).join('');
+        address = `0x71C${hex.slice(0, 4)}...${hex.slice(4, 8)}`;
+      }
+
+      const shortAddr = address.length > 13 ? `${address.slice(0, 6)}...${address.slice(-4)}` : address;
+      const cleanId = address.replace(/[^a-zA-Z0-9]/g, '').slice(-8) || String(Date.now());
+
+      let customerUser: User;
+
+      try {
+        const res = await fetch('/api/auth/wallet-login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            walletAddress: address,
+            role: roleOverride,
+            name: `Customer (${shortAddr})`
+          })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          customerUser = data.user;
+        } else {
+          throw new Error('Server wallet login fallback');
+        }
+      } catch {
+        customerUser = {
+          id: `cust-${cleanId}`,
+          name: `Customer (${shortAddr})`,
+          email: `${cleanId.toLowerCase()}@servexa.io`,
+          phone: '+1 (555) 000-1122',
+          role: roleOverride,
+          avatar: `https://api.dicebear.com/7.x/identicon/svg?seed=${address}`,
+          status: 'active',
+          verified: true,
+          walletBalance: 0.00, // 0 credits for new user
+          walletAddress: address,
+          preferredCurrency: 'USD',
+          createdAt: new Date().toISOString()
+        };
+      }
+
+      setCurrentUser(customerUser);
+      localStorage.setItem('servexa_user', JSON.stringify(customerUser));
+
+      if (customerUser.role === 'provider') {
+        setActiveView('provider');
+      } else {
+        setActiveView('customer');
+      }
+
+      setIsAuthModalOpen(false);
+      triggerGlobalRefresh();
+      return { success: true, user: customerUser };
+    } catch (e: any) {
+      return { success: false, error: e.message || 'Failed to connect wallet' };
     }
   };
 
@@ -589,7 +658,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIncomingCall(null);
   };
 
-  const openChat = (bookingId: string) => setActiveChatBookingId(bookingId);
+  const openChat = (bookingId: string) => {
+    if (!currentUser) {
+      setAuthModalTab('login');
+      setIsAuthModalOpen(true);
+      return;
+    }
+    setActiveChatBookingId(bookingId);
+  };
   const closeChat = () => setActiveChatBookingId(null);
 
   const openComplaintChat = (complaintId: string) => setActiveComplaintId(complaintId);
@@ -607,7 +683,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const openLiveTracking = (bookingId: string) => setActiveTrackingBookingId(bookingId);
   const closeLiveTracking = () => setActiveTrackingBookingId(null);
 
-  const openProviderProfile = (providerId: string) => setSelectedProviderId(providerId);
+  const openProviderProfile = (providerId: string) => {
+    if (!currentUser) {
+      setAuthModalTab('login');
+      setIsAuthModalOpen(true);
+      return;
+    }
+    setSelectedProviderId(providerId);
+  };
   const closeProviderProfile = () => setSelectedProviderId(null);
 
   const unreadNotifsCount = notifications.filter(n => !n.read).length;
@@ -621,6 +704,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setActiveView,
         login,
         loginWithGoogle,
+        loginWithWallet,
         register,
         logout,
         refreshUser,
@@ -675,7 +759,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setIsProfileModalOpen,
         updateUserLocally,
         globalRefreshKey,
-        triggerGlobalRefresh
+        triggerGlobalRefresh,
+        lastRealtimeEvent
       }}
     >
       {children}

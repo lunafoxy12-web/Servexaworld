@@ -24,7 +24,8 @@ import {
   Utensils,
   Stethoscope,
   Store,
-  X
+  X,
+  Wallet
 } from 'lucide-react';
 import { CategoryCards } from './CategoryCards';
 import { ProviderStoreSection } from './ProviderStoreSection';
@@ -51,7 +52,10 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
     globalRefreshKey,
     openLiveTracking,
     openFileComplaint,
-    openStorefrontSubdomain
+    openStorefrontSubdomain,
+    setIsAuthModalOpen,
+    setAuthModalTab,
+    loginWithWallet
   } = useAuth();
 
   const [categories, setCategories] = useState<ServiceCategory[]>([]);
@@ -64,6 +68,11 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
   const marqueeContainerRef = useRef<HTMLDivElement>(null);
 
   const handleConnectServexaAi = (promptText?: string) => {
+    if (!currentUser) {
+      setAuthModalTab('login');
+      setIsAuthModalOpen(true);
+      return;
+    }
     const text = promptText !== undefined ? promptText : searchQuery.trim();
     openAiModalWithPrompt(text || undefined);
   };
@@ -91,14 +100,9 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
         if (Array.isArray(cats)) setCategories(cats);
         if (Array.isArray(provs)) setProviders(provs);
         if (Array.isArray(bks)) {
-          const userBks = bks.filter(
-            (b: Booking) => {
-              if (currentUser?.id) {
-                return b.customerId === currentUser.id || ['on_the_way', 'in_progress', 'arrived', 'accepted'].includes(b.status);
-              }
-              return true;
-            }
-          );
+          const userBks = currentUser?.id
+            ? bks.filter((b: Booking) => b.customerId === currentUser.id)
+            : [];
           setActiveBookings(userBks);
         }
       })
@@ -229,12 +233,19 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
   };
 
   return (
-    <div className="min-h-screen bg-slate-50/60 pb-16">
+    <div className="min-h-screen pb-16">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6">
         {/* Service Specialists: 3D Animated Trade Characters */}
         <CategoryCards
           categories={categories}
-          onSelectCategory={(cat) => setDispatchCategory(cat)}
+          onSelectCategory={(cat) => {
+            if (!currentUser) {
+              setAuthModalTab('login');
+              setIsAuthModalOpen(true);
+              return;
+            }
+            setDispatchCategory(cat);
+          }}
         />
 
         {/* Products from Service Provider Stores */}
@@ -329,7 +340,7 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
 
                     <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
                       {/* Live GPS Radar Tracking Button */}
-                      {['accepted', 'on_the_way', 'arrived', 'in_progress'].includes(b.status) && (
+                      {['accepted', 'confirmed', 'on_the_way', 'arrived', 'in_progress'].includes(b.status) && (
                         <button
                           type="button"
                           onClick={() => openLiveTracking(b.id)}
@@ -350,15 +361,23 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
                         <PhoneCall className="w-4 h-4" />
                       </button>
 
-                      {/* Live Chat Button */}
-                      <button
-                        type="button"
-                        onClick={() => openChat(b.id, b.providerId, b.providerName)}
-                        className="p-1.5 rounded-xl bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 transition-colors cursor-pointer"
-                        title="Open Chat"
-                      >
-                        <MessageSquare className="w-4 h-4" />
-                      </button>
+                      {/* Live Chat Button - Available once provider accepts order */}
+                      {['accepted', 'confirmed', 'on_the_way', 'arrived', 'in_progress', 'completed'].includes(b.status) ? (
+                        <button
+                          type="button"
+                          onClick={() => openChat(b.id, b.providerId, b.providerName)}
+                          className="px-2.5 py-1.5 rounded-xl bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200 transition-colors cursor-pointer text-xs font-semibold flex items-center gap-1.5"
+                          title="Open Chat"
+                        >
+                          <MessageSquare className="w-3.5 h-3.5 text-teal-600" />
+                          <span>Chat</span>
+                        </button>
+                      ) : (
+                        <span className="px-2 py-1 bg-amber-50 border border-amber-200 text-amber-700 text-[11px] font-medium rounded-lg flex items-center gap-1">
+                          <Clock className="w-3 h-3 text-amber-500" />
+                          <span>Awaiting Acceptance</span>
+                        </span>
+                      )}
 
                       {/* Dispute Support */}
                       <button
@@ -570,100 +589,6 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
           </div>
         )}
 
-        {/* One-Line Moving Categories Bar with Small Icons */}
-        <div className="mb-6 bg-white/70 backdrop-blur-xs border border-slate-200/80 rounded-2xl p-2.5 shadow-2xs">
-          <div className="flex items-center justify-between gap-2 px-1.5 pb-2">
-            <div className="flex items-center gap-2">
-              <span className="flex h-2 w-2 relative">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-600"></span>
-              </span>
-              <h2 className="text-xs font-bold uppercase tracking-wider text-slate-700">
-                Service Categories
-              </h2>
-              {selectedCategoryId && (
-                <span className="text-[11px] font-semibold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-100">
-                  Filtering: {categories.find((c) => c.id === selectedCategoryId)?.name}
-                </span>
-              )}
-            </div>
-
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={() => onSelectCategory('')}
-                className={`text-xs font-semibold px-2.5 py-1 rounded-lg transition-colors cursor-pointer ${
-                  !selectedCategoryId
-                    ? 'bg-indigo-50 text-indigo-700'
-                    : 'text-slate-500 hover:text-slate-800'
-                }`}
-              >
-                View All
-              </button>
-            </div>
-          </div>
-
-          {/* Continuous Moving One-Line Track with small icons */}
-          <div
-            ref={marqueeContainerRef}
-            className="relative overflow-x-auto no-scrollbar py-1"
-          >
-            {/* Subtle side fade overlays */}
-            <div className="pointer-events-none absolute left-0 top-0 bottom-0 w-6 bg-gradient-to-r from-white/90 to-transparent z-10" />
-            <div className="pointer-events-none absolute right-0 top-0 bottom-0 w-6 bg-gradient-to-l from-white/90 to-transparent z-10" />
-
-            <div className="flex items-center gap-2 w-max transition-all animate-marquee-moving">
-              {/* All Categories Chip */}
-              <button
-                type="button"
-                onClick={() => onSelectCategory('')}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold shrink-0 cursor-pointer transition-all border ${
-                  !selectedCategoryId
-                    ? 'bg-slate-900 border-slate-900 text-white shadow-xs'
-                    : 'bg-white border-slate-200 text-slate-700 hover:border-slate-300 hover:bg-slate-50'
-                }`}
-              >
-                <Sparkles className="w-3 h-3 text-amber-400" />
-                <span>All Services</span>
-              </button>
-
-              {/* Seamless Infinite Loop of Categories in one line with small icons */}
-              {[...categories, ...categories, ...categories].map((cat, idx) => {
-                const isSelected = selectedCategoryId === cat.id;
-                return (
-                  <button
-                    key={`${cat.id}-${idx}`}
-                    type="button"
-                    onClick={() => onSelectCategory(isSelected ? '' : cat.id)}
-                    className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold shrink-0 cursor-pointer transition-all border ${
-                      isSelected
-                        ? 'bg-indigo-600 border-indigo-600 text-white shadow-xs ring-2 ring-indigo-200'
-                        : 'bg-white border-slate-200 text-slate-700 hover:border-indigo-300 hover:bg-indigo-50/50'
-                    }`}
-                    title={`Filter by ${cat.name}`}
-                  >
-                    <div
-                      className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${
-                        isSelected ? 'bg-indigo-700 text-white' : 'bg-slate-100 text-slate-700'
-                      }`}
-                    >
-                      {getCategoryIcon(cat.icon, 'w-3 h-3')}
-                    </div>
-                    <span className="whitespace-nowrap font-medium text-xs">{cat.name}</span>
-                    <span
-                      className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
-                        isSelected ? 'bg-indigo-700/80 text-indigo-100' : 'bg-slate-100 text-slate-500'
-                      }`}
-                    >
-                      {cat.pricingType === 'km' ? '/km' : cat.pricingType === 'hourly' ? '/hr' : 'Fixed'}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-
         {/* Small Search Bar with Option to Connect with Servexa Match */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
           <div>
@@ -686,13 +611,26 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
               <input
                 type="text"
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e) => {
+                  if (!currentUser) {
+                    setAuthModalTab('login');
+                    setIsAuthModalOpen(true);
+                    return;
+                  }
+                  setSearchQuery(e.target.value);
+                }}
+                onClick={() => {
+                  if (!currentUser) {
+                    setAuthModalTab('login');
+                    setIsAuthModalOpen(true);
+                  }
+                }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
                     handleConnectServexaAi();
                   }
                 }}
-                placeholder="Search services or ask Servexa..."
+                placeholder={!currentUser ? 'Sign in to search services...' : 'Search services or ask Servexa...'}
                 className="w-full bg-transparent border-none text-xs text-slate-900 placeholder:text-slate-400 focus:outline-hidden py-1 px-1 min-w-0"
               />
               {searchQuery && (
@@ -830,13 +768,25 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
                 </div>
               </div>
 
-              {/* Bottom Actions */}
-              <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center gap-2">
+              {/* Bottom Actions - Direct Booking and Contact (Service Provider Profile removed from home page) */}
+              <div className="p-3.5 bg-slate-50/80 border-t border-slate-100 flex items-center gap-2">
                 <button
-                  onClick={() => openProviderProfile(prov.userId)}
-                  className="flex-1 py-2 px-3 bg-white hover:bg-slate-100 border border-slate-200 text-slate-800 rounded-xl text-xs font-bold transition-all shadow-2xs text-center cursor-pointer"
+                  onClick={() => {
+                    const srv = prov.services?.[0] || {
+                      id: `srv-${prov.userId}-default`,
+                      name: prov.businessName || 'Standard Service',
+                      categoryId: prov.category,
+                      price: prov.hourlyRate || 45.00,
+                      priceType: 'fixed',
+                      durationMinutes: 60,
+                      description: prov.bio || 'Professional service dispatch.'
+                    };
+                    onOpenBookingModal(prov, srv);
+                  }}
+                  className="flex-1 py-2 px-3.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
                 >
-                  View Profile & Work
+                  <span>Get Service</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
                 </button>
 
                 <button
@@ -856,25 +806,6 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
                     <Store className="w-4 h-4" />
                   </button>
                 )}
-
-                <button
-                  onClick={() => {
-                    const srv = prov.services?.[0] || {
-                      id: `srv-${prov.userId}-default`,
-                      name: prov.businessName || 'Standard Service',
-                      categoryId: prov.category,
-                      price: prov.hourlyRate || 45.00,
-                      priceType: 'fixed',
-                      durationMinutes: 60,
-                      description: prov.bio || 'Professional service dispatch.'
-                    };
-                    onOpenBookingModal(prov, srv);
-                  }}
-                  className="py-2 px-3.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1 cursor-pointer"
-                >
-                  Book
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </button>
               </div>
             </div>
           ))}

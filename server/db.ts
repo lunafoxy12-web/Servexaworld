@@ -180,7 +180,7 @@ export const INITIAL_CATEGORIES: Category[] = [
     name: 'Taxi & Rides',
     slug: 'taxi-rides',
     icon: 'Car',
-    characterImage: '/src/assets/images/courier_character_1790071074079.jpg',
+    characterImage: '/src/assets/images/taxi_character_1790072748537.jpg',
     characterAction: 'Steering smooth city transit & rapid pick-up',
     characterWorkplace: 'Executive Vehicle & Real-time GPS Route',
     description: 'City rides, airport transfers, chauffeur & premium car services with real-time GPS tracking',
@@ -197,7 +197,7 @@ export const INITIAL_CATEGORIES: Category[] = [
     name: 'Food & Restaurants',
     slug: 'food-restaurants',
     icon: 'Utensils',
-    characterImage: '/src/assets/images/painter_character_1790071005515.jpg',
+    characterImage: '/src/assets/images/restaurant_character_1790072736452.jpg',
     characterAction: 'Tossing gourmet saute & plating hot artisan delicacies',
     characterWorkplace: 'Commercial Range & Chef Skillet',
     description: 'Chef-prepared gourmet cuisine, on-demand restaurant takeaway, artisan bakery, and private catering',
@@ -214,7 +214,7 @@ export const INITIAL_CATEGORIES: Category[] = [
     name: 'Doctors & Healthcare',
     slug: 'doctors-healthcare',
     icon: 'Stethoscope',
-    characterImage: '/src/assets/images/cleaner_character_1790071024665.jpg',
+    characterImage: '/src/assets/images/doctor_character_1790072723286.jpg',
     characterAction: 'Listening to vitals with stethoscope & administering care',
     characterWorkplace: 'Diagnostic Clinic & Mobile Care Bag',
     description: 'Licensed mobile physicians, emergency urgent home visits, telehealth HD consultations, and registered nursing care',
@@ -258,7 +258,8 @@ export const INITIAL_USERS: User[] = [
       address: '742 Market St, Financial District, San Francisco, CA'
     },
     createdAt: '2024-02-15T10:30:00.000Z',
-    walletBalance: 320.00,
+    walletBalance: 0.00,
+    walletAddress: '0x71c8901234ef0192834019283401928340192834',
     rating: 4.9,
     totalJobs: 14
   },
@@ -1112,6 +1113,14 @@ class Database {
           modified = true;
         }
       });
+      // Ensure all users have a walletAddress
+      this.state.users.forEach((u) => {
+        if (!u.walletAddress) {
+          const hash = Buffer.from(u.id + (u.email || '')).toString('hex').padEnd(40, '0').slice(0, 40);
+          u.walletAddress = `0x${hash}`;
+          modified = true;
+        }
+      });
       // Ensure products, invoices, payouts, emailSettings exist
       if (!this.state.products || !Array.isArray(this.state.products) || this.state.products.length === 0) {
         this.state.products = [...INITIAL_PRODUCTS];
@@ -1243,7 +1252,15 @@ class Database {
   }
 
   createUser(user: User): User {
+    if (!user.walletAddress) {
+      const hash = Buffer.from(user.id + (user.email || '')).toString('hex').padEnd(40, '0').slice(0, 40);
+      user.walletAddress = `0x${hash}`;
+    }
+    if (user.walletBalance === undefined || user.walletBalance === null) {
+      user.walletBalance = 0.0;
+    }
     this.state.users.push(user);
+    this.saveToDisk();
     return user;
   }
 
@@ -2330,6 +2347,49 @@ class Database {
     return this.state.products.find(p => p.id === id) || null;
   }
 
+  addProduct(data: Partial<StoreProduct> & { name: string; price: number; providerId: string }): StoreProduct {
+    const provider = this.getProviderById(data.providerId);
+    const newProduct: StoreProduct = {
+      id: 'prod-' + Date.now(),
+      providerId: data.providerId,
+      providerName: data.providerName || provider?.businessName || 'Verified Specialist',
+      storeName: data.storeName || provider?.storefront?.storeName || 'Official Store',
+      subdomain: data.subdomain || provider?.storefront?.subdomain || provider?.handle || 'store',
+      name: data.name,
+      description: data.description || '',
+      price: Number(data.price) || 10,
+      currency: data.currency || provider?.storefront?.currency || 'USD',
+      category: data.category || provider?.category || 'cat-home',
+      image: data.image || data.imageUrl || 'https://images.unsplash.com/photo-1581092160607-ee22621dd758?w=800&auto=format&fit=crop&q=80',
+      imageUrl: data.image || data.imageUrl || 'https://images.unsplash.com/photo-1581092160607-ee22621dd758?w=800&auto=format&fit=crop&q=80',
+      inStock: data.inStock !== false,
+      rating: 5.0,
+      salesCount: 0
+    };
+    if (!this.state.products) this.state.products = [];
+    this.state.products.unshift(newProduct);
+    this.saveToDisk();
+    return newProduct;
+  }
+
+  updateProduct(id: string, updates: Partial<StoreProduct>): StoreProduct | null {
+    const product = this.getProductById(id);
+    if (!product) return null;
+    Object.assign(product, updates);
+    this.saveToDisk();
+    return product;
+  }
+
+  deleteProduct(id: string): boolean {
+    const initialLen = this.state.products.length;
+    this.state.products = this.state.products.filter(p => p.id !== id);
+    if (this.state.products.length !== initialLen) {
+      this.saveToDisk();
+      return true;
+    }
+    return false;
+  }
+
   purchaseProduct(
     productId: string,
     customerId: string,
@@ -2474,23 +2534,23 @@ class Database {
   ): { success: boolean; invoice?: ChatInvoice; error?: string } {
     const inv = this.state.invoices?.find(i => i.id === invoiceId);
     if (!inv) return { success: false, error: 'Invoice not found' };
-    if (inv.status === 'paid') return { success: true, invoice: inv };
+    if (inv.status === 'paid' || inv.status === 'confirmed') return { success: true, invoice: inv };
 
     const customer = this.getUserById(inv.customerId);
     const provider = this.getUserById(inv.providerId);
     const admin = this.getUserById('admin-1');
 
-    if (paymentMethod === 'wallet' && customer) {
+    if ((paymentMethod === 'credit' || paymentMethod === 'wallet') && customer) {
       if (customer.walletBalance < inv.totalAmount) {
         return {
           success: false,
-          error: `Insufficient wallet balance ($${customer.walletBalance.toFixed(2)}). Need $${inv.totalAmount.toFixed(2)}.`
+          error: `Insufficient credit balance ($${customer.walletBalance.toFixed(2)}). Total amount is $${inv.totalAmount.toFixed(2)}.`
         };
       }
       customer.walletBalance = Math.round((customer.walletBalance - inv.totalAmount) * 100) / 100;
     }
 
-    inv.status = 'paid';
+    inv.status = 'confirmed';
     inv.paidAt = new Date().toISOString();
     inv.paymentMethod = paymentMethod;
     inv.transactionId = 'tx-inv-' + Date.now();
@@ -2555,12 +2615,12 @@ class Database {
       }
     }
 
-    // Update booking if applicable
+    // Update booking to confirmed status upon payment in chat
     if (inv.bookingId) {
       const booking = this.getBookingById(inv.bookingId);
       if (booking) {
         booking.paymentStatus = 'paid';
-        booking.status = 'completed';
+        booking.status = 'confirmed';
       }
     }
 

@@ -43,6 +43,7 @@ export interface User {
   location?: LocationCoords;
   createdAt: string;
   walletBalance: number;
+  walletAddress?: string;
   rating?: number;
   totalJobs?: number;
   completedLoyaltyServices?: number; // 0 to 15, resets upon free service
@@ -64,6 +65,7 @@ export interface ProviderStorefront {
   contactEmail?: string;
   contactPhone?: string;
   themeColor?: string;
+  currency?: string;
   subscriptionActive: boolean;
   monthlyFee: number; // 5.00
   subscriptionRenewsAt?: string;
@@ -150,7 +152,9 @@ export interface Category {
 
 export type BookingStatus =
   | 'requested'
+  | 'pending'
   | 'accepted'
+  | 'confirmed'
   | 'on_the_way'
   | 'arrived'
   | 'in_progress'
@@ -227,6 +231,7 @@ export interface Product {
   name: string;
   description: string;
   price: number;
+  currency?: string;
   category: string;
   image?: string;
   imageUrl?: string;
@@ -260,7 +265,7 @@ export interface ChatInvoice {
   totalAmount: number; // labor + materials + consultationFee
   providerEarnings: number; // (labor + materials) - 6% commission
   notes?: string;
-  status: 'pending' | 'paid' | 'cancelled';
+  status: 'pending' | 'paid' | 'confirmed' | 'cancelled';
   paidAt?: string;
   paymentMethod?: string;
   transactionId?: string;

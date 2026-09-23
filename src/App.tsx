@@ -4,7 +4,6 @@
  */
 
 import React, { useState } from 'react';
-import { ThemeProvider } from './context/ThemeContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { Navbar } from './components/Navbar';
 import { CustomerView } from './components/CustomerView/CustomerView';
@@ -68,7 +67,7 @@ function AppContent() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans antialiased selection:bg-indigo-500 selection:text-white">
+    <div className="min-h-screen bg-gradient-to-b from-[#edf2ff] via-[#f8fafc] to-[#e8edff] text-slate-900 flex flex-col font-sans antialiased selection:bg-indigo-500 selection:text-white">
       {/* Top Universal Navbar */}
       <Navbar
         onOpenWalletModal={() => setIsWalletOpen(true)}
@@ -90,24 +89,28 @@ function AppContent() {
         {activeView === 'admin' && currentUser?.role === 'admin' && <AdminView />}
       </main>
 
-      {/* Footer */}
-      <footer className="bg-white border-t border-slate-200 py-8 text-xs text-slate-500">
+      {/* Unique Bottom Footer */}
+      <footer className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 border-t-2 border-[#cbd5ff] py-8 text-xs text-slate-300 shadow-xl">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2">
-            <span className="font-extrabold text-slate-900">Servexa</span>
-            <span>•</span>
-            <span>Global Service Marketplace & PBX VoIP Telephony</span>
+            <span className="font-extrabold text-white text-sm tracking-tight">Servexa</span>
+            <span className="text-[#cbd5ff]">•</span>
+            <span className="text-slate-300 font-medium">Global Service Marketplace & PBX VoIP Telephony</span>
           </div>
 
-          <div className="flex items-center gap-4 text-slate-400">
-            <span className="flex items-center gap-1">
-              <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+          <div className="flex items-center gap-3 text-slate-300">
+            <span className="flex items-center gap-1.5 text-emerald-400 bg-emerald-950/70 border border-emerald-800/80 px-2.5 py-0.5 rounded-md font-semibold">
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
               E2EE 256-bit PBX
             </span>
             <span>•</span>
-            <span>Stripe Connect Protected</span>
+            <span className="text-slate-300 bg-slate-800/80 border border-slate-700/80 px-2.5 py-0.5 rounded-md font-medium">
+              Stripe Connect Protected
+            </span>
             <span>•</span>
-            <span>v2.4.0 Production</span>
+            <span className="text-[#cbd5ff] font-mono font-bold">
+              v2.4.0 Production
+            </span>
           </div>
         </div>
       </footer>
@@ -155,10 +158,8 @@ function AppContent() {
 
 export default function App() {
   return (
-    <ThemeProvider>
-      <AuthProvider>
-        <AppContent />
-      </AuthProvider>
-    </ThemeProvider>
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
   );
 }

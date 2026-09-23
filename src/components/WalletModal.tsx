@@ -277,8 +277,15 @@ export const WalletModal: React.FC<WalletModalProps> = ({ isOpen, onClose }) => 
                   </span>
                 )}
               </div>
-              <p className="text-[11px] text-slate-500">
-                {currentUser.role === 'provider' ? 'Service Provider Earnings & Payouts' : 'Customer Payment Balance'}
+              <p className="text-[11px] text-slate-500 flex items-center gap-1.5 flex-wrap">
+                <span>{currentUser.role === 'provider' ? 'Service Provider Earnings & Payouts' : 'Customer Account & Wallet'}</span>
+                {currentUser.walletAddress && (
+                  <span className="font-mono text-[10px] text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100">
+                    {currentUser.walletAddress.length > 16 
+                      ? `${currentUser.walletAddress.slice(0, 8)}...${currentUser.walletAddress.slice(-6)}` 
+                      : currentUser.walletAddress}
+                  </span>
+                )}
               </p>
             </div>
           </div>

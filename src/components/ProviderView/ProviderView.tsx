@@ -28,14 +28,12 @@ import {
   Camera,
   ShoppingBag,
   Navigation,
-  KeyRound,
-  BarChart3
+  KeyRound
 } from 'lucide-react';
 import { StorefrontManager } from './StorefrontManager';
 import { DirectImageUpload } from '../common/DirectImageUpload';
 import { AddProductServiceModal } from './AddProductServiceModal';
-import { ProviderAnalyticsDashboard } from './ProviderAnalyticsDashboard';
-import { ReviewStar, LeaveFeedbackModal } from '../common/ReviewStar';
+import { OrderNotificationPopup } from './OrderNotificationPopup';
 
 export const ProviderView: React.FC = () => {
   const {
@@ -53,11 +51,10 @@ export const ProviderView: React.FC = () => {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [reviews, setReviews] = useState<Review[]>([]);
   const [selectedServiceForReviews, setSelectedServiceForReviews] = useState<ServiceItem | null>(null);
-  const [activeTab, setActiveTab] = useState<'jobs' | 'portfolio' | 'services' | 'storefront' | 'analytics'>('jobs');
+  const [activeTab, setActiveTab] = useState<'jobs' | 'portfolio' | 'services' | 'storefront'>('jobs');
   const [isOnline, setIsOnline] = useState(true);
   const [loading, setLoading] = useState(true);
   const [isAddProductModalOpen, setIsAddProductModalOpen] = useState(false);
-  const [feedbackBooking, setFeedbackBooking] = useState<Booking | null>(null);
 
   // New portfolio post form modal state
   const [isNewPostOpen, setIsNewPostOpen] = useState(false);
@@ -304,7 +301,7 @@ export const ProviderView: React.FC = () => {
             <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200/80">
               <span className="text-[11px] text-slate-500 font-medium">Today's Earnings</span>
               <div className="text-xl font-extrabold text-slate-900 mt-0.5 font-mono">
-                ${(currentUser?.walletBalance ?? 342.80).toFixed(2)}
+                ${(currentUser?.walletBalance ?? 0.00).toFixed(2)}
               </div>
               <span className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1 mt-0.5">
                 <CheckCircle2 className="w-3 h-3" /> Net after 5% platform fee
@@ -383,17 +380,6 @@ export const ProviderView: React.FC = () => {
           >
             <Store className="w-3.5 h-3.5" />
             <span>Storefront Subdomain ($5/mo)</span>
-          </button>
-          <button
-            onClick={() => setActiveTab('analytics')}
-            className={`py-3 px-4 text-xs font-bold border-b-2 transition-all cursor-pointer flex items-center gap-1.5 ${
-              activeTab === 'analytics'
-                ? 'border-indigo-600 text-indigo-700'
-                : 'border-transparent text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            <BarChart3 className="w-3.5 h-3.5" />
-            <span>30-Day Analytics & CSV</span>
           </button>
         </div>
       </div>
@@ -529,7 +515,7 @@ export const ProviderView: React.FC = () => {
                   <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
                     <div className="flex flex-wrap items-center gap-2">
                       {/* Track on Google Maps */}
-                      {['accepted', 'on_the_way', 'arrived', 'in_progress'].includes(b.status) && (
+                      {['accepted', 'confirmed', 'on_the_way', 'arrived', 'in_progress'].includes(b.status) && (
                         <button
                           type="button"
                           onClick={() => openLiveTracking(b.id)}
@@ -540,14 +526,21 @@ export const ProviderView: React.FC = () => {
                         </button>
                       )}
 
-                      <button
-                        type="button"
-                        onClick={() => openChat(b.id)}
-                        className="py-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
-                      >
-                        <MessageSquare className="w-3.5 h-3.5" />
-                        Chat Customer
-                      </button>
+                      {['accepted', 'confirmed', 'on_the_way', 'arrived', 'in_progress', 'completed'].includes(b.status) ? (
+                        <button
+                          type="button"
+                          onClick={() => openChat(b.id)}
+                          className="py-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                        >
+                          <MessageSquare className="w-3.5 h-3.5" />
+                          Chat Customer
+                        </button>
+                      ) : (
+                        <span className="py-2 px-3 bg-amber-50 text-amber-800 border border-amber-200 rounded-xl text-xs font-semibold flex items-center gap-1.5">
+                          <Clock className="w-3.5 h-3.5 text-amber-600" />
+                          Accept Request to Open Chat
+                        </span>
+                      )}
 
                       <button
                         type="button"
@@ -570,7 +563,7 @@ export const ProviderView: React.FC = () => {
                         </button>
                       )}
 
-                      {b.status === 'accepted' && (
+                      {(b.status === 'accepted' || b.status === 'confirmed') && (
                         <button
                           onClick={() => handleUpdateBookingStatus(b.id, 'on_the_way')}
                           className="py-2 px-4 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
@@ -605,17 +598,6 @@ export const ProviderView: React.FC = () => {
                         >
                           <CheckCircle2 className="w-3.5 h-3.5" />
                           Complete & Settle Earnings
-                        </button>
-                      )}
-
-                      {b.status === 'completed' && (
-                        <button
-                          type="button"
-                          onClick={() => setFeedbackBooking(b)}
-                          className="py-2 px-3.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
-                        >
-                          <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-500" />
-                          <span>Leave Feedback / Review</span>
                         </button>
                       )}
                     </div>
@@ -866,16 +848,6 @@ export const ProviderView: React.FC = () => {
         {activeTab === 'storefront' && currentUser && (
           <StorefrontManager providerId={currentUser.id} providerProfile={provider} />
         )}
-
-        {/* 30-Day Analytics & CSV Export Tab */}
-        {activeTab === 'analytics' && (
-          <div className="space-y-6 animate-in fade-in">
-            <ProviderAnalyticsDashboard
-              bookings={bookings}
-              providerId={currentUser?.id || provider?.userId || 'prov-1'}
-            />
-          </div>
-        )}
       </div>
 
       {/* New Portfolio Post Modal */}
@@ -1039,21 +1011,14 @@ export const ProviderView: React.FC = () => {
         }}
       />
 
-      {/* Leave Feedback Modal */}
-      {feedbackBooking && (
-        <LeaveFeedbackModal
-          bookingId={feedbackBooking.id}
-          providerId={feedbackBooking.providerId}
-          providerName={provider?.businessName || feedbackBooking.providerName || 'Specialist Provider'}
-          customerName={currentUser?.name || feedbackBooking.customerName || 'Customer'}
-          customerAvatar={currentUser?.avatar}
-          onClose={() => setFeedbackBooking(null)}
-          onSuccess={() => {
-            setFeedbackBooking(null);
-            triggerGlobalRefresh();
-          }}
-        />
-      )}
+      {/* Real-time Order Popup Notification for Provider */}
+      <OrderNotificationPopup
+        providerId={currentUser?.id || provider?.userId || 'prov-1'}
+        providerCategory={provider?.category}
+        onOrderAccepted={() => {
+          triggerGlobalRefresh();
+        }}
+      />
     </div>
   );
 };

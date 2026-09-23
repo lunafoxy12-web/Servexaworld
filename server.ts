@@ -248,7 +248,7 @@ app.post('/api/auth/google', (req: Request, res: Response) => {
     verified: true,
     emailVerified: true,
     createdAt: new Date().toISOString(),
-    walletBalance: assignedRole === 'customer' ? 100.0 : 50.0,
+    walletBalance: 0.0,
     rating: 5.0,
     totalJobs: 0
   };
@@ -334,7 +334,8 @@ app.post('/api/auth/register', (req: Request, res: Response) => {
     verified: false,
     emailVerified: false,
     createdAt: new Date().toISOString(),
-    walletBalance: role === 'customer' ? 100.0 : 50.0, // give provider $50 initial credit so they can test storefront subscription!
+    walletBalance: 0.0, // Every new user starts with 0 credits
+    walletAddress: `0x${Buffer.from(newId + email).toString('hex').padEnd(40, '0').slice(0, 40)}`,
     rating: 5.0,
     totalJobs: 0,
     businessName: businessName || name
@@ -408,6 +409,65 @@ app.post('/api/auth/register', (req: Request, res: Response) => {
     token: 'token-' + newUser.id,
     verificationCode: otpCode,
     message: 'Account registered. Verification code dispatched to ' + email
+  });
+});
+
+app.post('/api/auth/wallet-login', (req: Request, res: Response) => {
+  const { walletAddress, role = 'customer', name } = req.body;
+  if (!walletAddress) {
+    return res.status(400).json({ error: 'Wallet address is required' });
+  }
+
+  const cleanAddress = walletAddress.trim().toLowerCase();
+  // Find customer by walletAddress or generated wallet id or email
+  let user = db.getUsers().find(u => 
+    (u.walletAddress && u.walletAddress.toLowerCase() === cleanAddress) ||
+    u.id === `cust-wallet-${cleanAddress.slice(-8)}` ||
+    u.email.toLowerCase() === `${cleanAddress.slice(-8)}@servexa.io`
+  );
+
+  if (user) {
+    if (user.status === 'blocked') {
+      return res.status(403).json({ error: 'Your customer wallet account has been restricted by platform administration.' });
+    }
+    return res.json({
+      user,
+      token: 'token-wallet-' + user.id,
+      message: 'Logged in to customer wallet account successfully'
+    });
+  }
+
+  // Create new customer account tied directly to this wallet - starts with 0 credits
+  const shortAddr = walletAddress.length > 12 ? `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}` : walletAddress;
+  const newId = (role === 'provider' ? 'prov-' : 'cust-') + Date.now();
+  const newUser: User = {
+    id: newId,
+    name: name || `Customer (${shortAddr})`,
+    email: `${cleanAddress.replace(/[^a-z0-9]/g, '').slice(-8)}@servexa.io`,
+    phone: '+1 (555) 000-1122',
+    role: role === 'provider' ? 'provider' : 'customer',
+    avatar: `https://api.dicebear.com/7.x/identicon/svg?seed=${walletAddress}`,
+    status: 'active',
+    verified: true,
+    emailVerified: true,
+    createdAt: new Date().toISOString(),
+    walletBalance: 0.0, // Every new user starts with 0 credits
+    walletAddress: walletAddress,
+    rating: 5.0,
+    totalJobs: 0
+  };
+
+  db.createUser(newUser);
+
+  broadcast({
+    type: 'NOTIFICATION',
+    payload: { title: 'New Customer Wallet Login', message: `${newUser.name} connected with 0 initial credits` }
+  });
+
+  return res.json({
+    user: newUser,
+    token: 'token-wallet-' + newUser.id,
+    message: 'Customer wallet account registered with 0 credits'
   });
 });
 
@@ -992,6 +1052,20 @@ app.get('/api/providers/:id/storefront', (req: Request, res: Response) => {
 });
 
 app.post('/api/providers/:id/storefront', (req: Request, res: Response) => {
+  const result = db.updateProviderStorefront(req.params.id, req.body);
+  if ('error' in result) {
+    return res.status(400).json({ error: result.error });
+  }
+
+  broadcast({
+    type: 'STOREFRONT_UPDATED',
+    payload: { providerId: req.params.id, storefront: result.storefront }
+  });
+
+  res.json(result);
+});
+
+app.put('/api/providers/:id/storefront', (req: Request, res: Response) => {
   const result = db.updateProviderStorefront(req.params.id, req.body);
   if ('error' in result) {
     return res.status(400).json({ error: result.error });
@@ -1749,6 +1823,55 @@ app.post('/api/products/:id/purchase', (req: Request, res: Response) => {
   res.json({ success: true, ...result });
 });
 
+app.post('/api/products', (req: Request, res: Response) => {
+  const { providerId, name, price, description, category, image, imageUrl, inStock, currency } = req.body;
+  if (!providerId || !name || price === undefined) {
+    return res.status(400).json({ error: 'providerId, name, and price are required' });
+  }
+
+  const product = db.addProduct({
+    providerId,
+    name,
+    price: Number(price) || 10,
+    description: description || '',
+    category: category || 'cat-home',
+    image: image || imageUrl,
+    imageUrl: image || imageUrl,
+    inStock: inStock !== false,
+    currency: currency || 'USD'
+  });
+
+  broadcast({
+    type: 'PRODUCT_PURCHASED', // trigger list refresh
+    payload: { product }
+  });
+
+  res.json({ success: true, product });
+});
+
+app.put('/api/products/:id', (req: Request, res: Response) => {
+  const updated = db.updateProduct(req.params.id, req.body);
+  if (!updated) {
+    return res.status(404).json({ error: 'Product not found' });
+  }
+
+  broadcast({
+    type: 'PRODUCT_PURCHASED',
+    payload: { product: updated }
+  });
+
+  res.json({ success: true, product: updated });
+});
+
+app.delete('/api/products/:id', (req: Request, res: Response) => {
+  const deleted = db.deleteProduct(req.params.id);
+  if (!deleted) {
+    return res.status(404).json({ error: 'Product not found' });
+  }
+
+  res.json({ success: true, message: 'Product deleted' });
+});
+
 // ----------------------------------------------------
 // 12. IN-CHAT INVOICES & INSTANT PAYMENT
 // ----------------------------------------------------
@@ -1981,8 +2104,13 @@ app.post('/api/dispatch/request', (req: Request, res: Response) => {
       categoryName: ticket.categoryName,
       issueDescription: ticket.issueDescription,
       expiresInSeconds: 15,
+      expiresAt,
       notifiedProviderIds,
-      customerLocation: ticket.customerLocation
+      customerLocation: ticket.customerLocation,
+      customerId: ticket.customerId,
+      customerName: ticket.customerName,
+      customerAvatar: customer?.avatar,
+      payoutAmount: 61.10
     }
   });
 
@@ -1994,6 +2122,31 @@ app.post('/api/dispatch/request', (req: Request, res: Response) => {
     acceptTimeSeconds: 15,
     expiresAt
   });
+});
+
+app.get('/api/dispatch/pending', (req: Request, res: Response) => {
+  const { providerId, categoryId } = req.query;
+  const now = Date.now();
+  const pending: any[] = [];
+
+  activeDispatchTickets.forEach(ticket => {
+    if (ticket.status === 'searching' && ticket.expiresAt > now) {
+      if (
+        (!providerId || ticket.notifiedProviderIds.includes(providerId as string)) &&
+        (!categoryId || ticket.categoryId === categoryId)
+      ) {
+        const customer = db.getUserById(ticket.customerId);
+        pending.push({
+          ...ticket,
+          customerAvatar: customer?.avatar,
+          secondsRemaining: Math.max(0, Math.ceil((ticket.expiresAt - now) / 1000)),
+          payoutAmount: 61.10
+        });
+      }
+    }
+  });
+
+  res.json({ pending });
 });
 
 app.post('/api/dispatch/accept', (req: Request, res: Response) => {

@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { useTheme } from '../context/ThemeContext';
 import {
   Sparkles,
   PhoneCall,
@@ -13,9 +12,7 @@ import {
   Car,
   Search,
   CheckCircle2,
-  X,
-  Sun,
-  Moon
+  X
 } from 'lucide-react';
 
 interface NavbarProps {
@@ -37,9 +34,9 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenWalletModal, onOpenSearch 
     setAuthModalTab,
     setIsAiModalOpen,
     setIsProfileModalOpen,
-    login
+    login,
+    loginWithWallet
   } = useAuth();
-  const { theme, toggleTheme } = useTheme();
 
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
@@ -52,8 +49,8 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenWalletModal, onOpenSearch 
   };
 
   return (
-    <header className="sticky top-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 shadow-xs transition-colors">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <header className="sticky top-0 z-40 bg-[#cbd5ff] border-b border-indigo-200/80 shadow-xs">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 bg-[#cbd5ff]" style={{ backgroundColor: '#cbd5ff' }}>
         <div className="flex items-center justify-between h-16 gap-4">
           {/* Logo & Platform Tag */}
           <div className="flex items-center gap-6">
@@ -61,7 +58,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenWalletModal, onOpenSearch 
               onClick={() => setActiveView('customer')}
               className="flex items-center gap-2 text-left group cursor-pointer"
             >
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-slate-900 to-indigo-700 text-white flex items-center justify-center font-bold text-xl shadow-xs group-hover:scale-105 transition-transform">
+              <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center font-bold text-xl shadow-xs group-hover:scale-105 transition-transform">
                 S
               </div>
               <div>
@@ -70,15 +67,15 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenWalletModal, onOpenSearch 
                     Servexa
                   </span>
                 </div>
-                <p className="text-[11px] text-slate-500 font-medium leading-none hidden sm:block">
+                <p className="text-[11px] text-slate-600 font-medium leading-none hidden sm:block">
                   Global Service Marketplace & PBX
                 </p>
               </div>
             </button>
 
-            {/* Account Role Badge & Provider Registration */}
+            {/* Account Role Badge & Console Link (Hidden on customer home page) */}
             <div className="hidden md:flex items-center gap-2">
-              {currentUser?.role === 'provider' ? (
+              {currentUser?.role === 'provider' && activeView !== 'customer' ? (
                 <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 border border-emerald-200/80 rounded-lg text-emerald-800 text-xs font-semibold">
                   <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
                   <span>Service Provider Console</span>
@@ -91,33 +88,31 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenWalletModal, onOpenSearch 
                   <Shield className="w-3.5 h-3.5" />
                   <span>Platform Super Admin</span>
                 </div>
-              ) : (
-                <button
-                  onClick={() => {
-                    setAuthModalTab('register');
-                    setIsAuthModalOpen(true);
-                  }}
-                  className="px-3 py-1.5 rounded-lg text-xs font-semibold text-indigo-600 hover:text-indigo-700 bg-indigo-50/70 hover:bg-indigo-100/70 border border-indigo-200/60 transition-all cursor-pointer flex items-center gap-1.5"
-                >
-                  <span>Become a Service Provider</span>
-                </button>
-              )}
+              ) : null}
             </div>
           </div>
 
           {/* Center Search / AI Concierge Button */}
           <div className="flex-1 max-w-md hidden lg:flex items-center gap-2">
             <button
-              onClick={() => setIsAiModalOpen(true)}
-              className="w-full flex items-center justify-between px-3.5 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-500 hover:bg-slate-100/80 hover:border-slate-300 transition-all shadow-2xs group cursor-pointer"
+              onClick={() => {
+                if (!currentUser) {
+                  setAuthModalTab('login');
+                  setIsAuthModalOpen(true);
+                } else {
+                  setIsAiModalOpen(true);
+                }
+              }}
+              className="w-full flex items-center justify-between px-3.5 py-2 rounded-xl bg-white/80 border border-indigo-200/70 text-xs text-slate-600 hover:bg-white hover:border-indigo-300 transition-all shadow-2xs group cursor-pointer"
+              title={!currentUser ? 'Sign in to find services' : 'Search Servexa'}
             >
               <div className="flex items-center gap-2">
                 <Sparkles className="w-4 h-4 text-indigo-600 group-hover:rotate-12 transition-transform" />
-                <span className="font-medium text-slate-700">Search Servexa...</span>
+                <span className="font-medium text-slate-700">Find Service...</span>
                 <span className="text-slate-400 text-[11px] truncate">"Leaking pipe" or "Ride to SFO"</span>
               </div>
               <kbd className="text-[10px] font-mono bg-white px-1.5 py-0.5 rounded border border-slate-200 text-slate-500">
-                Quick Match
+                Search
               </kbd>
             </button>
           </div>
@@ -137,36 +132,29 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenWalletModal, onOpenSearch 
 
             {/* Assistant Quick Button for mobile */}
             <button
-              onClick={() => setIsAiModalOpen(true)}
+              onClick={() => {
+                if (!currentUser) {
+                  setAuthModalTab('login');
+                  setIsAuthModalOpen(true);
+                } else {
+                  setIsAiModalOpen(true);
+                }
+              }}
               className="lg:hidden p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
-              title="Servexa Concierge"
+              title={!currentUser ? 'Sign in to find services' : 'Find Service'}
             >
               <Sparkles className="w-5 h-5" />
-            </button>
-
-            {/* Theme Toggle Button (Light/Dark Mode) */}
-            <button
-              onClick={toggleTheme}
-              className="p-2 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
-              title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} Mode`}
-              aria-label="Toggle theme mode"
-            >
-              {theme === 'dark' ? (
-                <Sun className="w-5 h-5 text-amber-400 animate-in spin-in-180" />
-              ) : (
-                <Moon className="w-5 h-5 text-slate-600 dark:text-slate-300" />
-              )}
             </button>
 
             {/* Wallet Balance Pill */}
             {currentUser && (
               <button
                 onClick={onOpenWalletModal}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold text-slate-800 dark:text-slate-200 transition-colors shadow-2xs cursor-pointer"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-white/80 hover:bg-white border border-indigo-200/80 rounded-lg text-xs font-semibold text-slate-800 transition-colors shadow-2xs cursor-pointer"
                 title="View Wallet & Transactions"
               >
                 <Wallet className="w-3.5 h-3.5 text-indigo-600" />
-                <span>${(currentUser.walletBalance || 0).toFixed(2)}</span>
+                <span>${(currentUser.walletBalance ?? 0).toFixed(2)}</span>
               </button>
             )}
 
@@ -175,7 +163,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenWalletModal, onOpenSearch 
               <div className="relative">
                 <button
                   onClick={handleNotificationClick}
-                  className="relative p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+                  className="relative p-2 text-slate-700 hover:text-slate-900 hover:bg-white/60 rounded-lg transition-colors cursor-pointer"
                   title="Notifications"
                 >
                   <Bell className="w-5 h-5" />
@@ -217,12 +205,28 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenWalletModal, onOpenSearch 
               </div>
             )}
 
-            {/* Profile Menu or Standard Sign In */}
-            {currentUser ? (
+            {/* Unauthenticated: Customer Sign In / Wallet Login */}
+            {!currentUser ? (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAuthModalTab('login');
+                    setIsAuthModalOpen(true);
+                  }}
+                  className="flex items-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer active:scale-95"
+                  title="Customer Sign In & Wallet Login"
+                >
+                  <Wallet className="w-3.5 h-3.5 text-indigo-200" />
+                  <span>Sign In / Wallet</span>
+                </button>
+              </div>
+            ) : (
+              /* Signed-in user profile menu */
               <div className="relative">
                 <button
                   onClick={() => setShowProfileMenu(!showProfileMenu)}
-                  className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+                  className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-white/60 transition-colors cursor-pointer"
                 >
                   <img
                     src={currentUser.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80'}
@@ -303,18 +307,6 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenWalletModal, onOpenSearch 
                     </div>
                   </div>
                 )}
-              </div>
-            ) : (
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => {
-                    setAuthModalTab('login');
-                    setIsAuthModalOpen(true);
-                  }}
-                  className="px-4 py-2 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-xl transition-all shadow-xs cursor-pointer"
-                >
-                  Sign In
-                </button>
               </div>
             )}
           </div>

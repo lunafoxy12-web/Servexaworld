@@ -16,6 +16,9 @@ import {
   MapPin,
   FileText,
   CreditCard,
+  Wallet,
+  Clock,
+  AlertTriangle,
   CheckCircle2,
   ShoppingBag
 } from 'lucide-react';
@@ -39,6 +42,9 @@ export const ChatDrawer: React.FC = () => {
   const [laborVal, setLaborVal] = useState('50');
   const [materialsVal, setMaterialsVal] = useState('25');
   const [payingInvId, setPayingInvId] = useState<string | null>(null);
+  const [paymentModalInvoice, setPaymentModalInvoice] = useState<ChatInvoice | null>(null);
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<'credit' | 'card'>('credit');
+  const [paymentError, setPaymentError] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
@@ -100,21 +106,35 @@ export const ChatDrawer: React.FC = () => {
     }
   }, [isPreorder, preorderTargetId, booking]);
 
-  const handlePayChatInvoice = async (invoiceId: string) => {
+  const handlePayChatInvoice = async (invoiceId: string, method: 'credit' | 'card') => {
     setPayingInvId(invoiceId);
+    setPaymentError(null);
     try {
       const res = await fetch(`/api/invoices/${invoiceId}/pay`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ paymentMethod: 'card' })
+        body: JSON.stringify({ paymentMethod: method })
       });
-      if (res.ok) {
+      const data = await res.json();
+      if (res.ok && data.success) {
         setInvoices((prev) =>
-          prev.map((inv) => (inv.id === invoiceId ? { ...inv, status: 'paid' } : inv))
+          prev.map((inv) => (inv.id === invoiceId ? { ...inv, status: 'confirmed', paymentMethod: method } : inv))
         );
+        if (booking && booking.id === activeChatBookingId) {
+          setBooking((prev) => (prev ? { ...prev, status: 'confirmed', paymentStatus: 'paid' } : null));
+        }
+        if (method === 'credit' && currentUser) {
+          currentUser.walletBalance = Math.max(
+            0,
+            Math.round(((currentUser.walletBalance || 0) - (paymentModalInvoice?.totalAmount || 0)) * 100) / 100
+          );
+        }
+        setPaymentModalInvoice(null);
+      } else {
+        setPaymentError(data.error || 'Payment failed');
       }
-    } catch (e) {
-      console.error('Invoice pay error:', e);
+    } catch (e: any) {
+      setPaymentError(e.message || 'Invoice pay error');
     } finally {
       setPayingInvId(null);
     }
@@ -325,8 +345,52 @@ export const ChatDrawer: React.FC = () => {
           </div>
         )}
 
-        {/* Messages List */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50/50 relative">
+        {/* If booking is still pending acceptance */}
+        {booking && booking.status === 'pending' ? (
+          <div className="flex-1 flex flex-col items-center justify-center p-8 text-center space-y-4 bg-slate-50">
+            <div className="w-16 h-16 rounded-2xl bg-amber-100 border border-amber-200 flex items-center justify-center text-amber-700 animate-pulse">
+              <Clock className="w-8 h-8" />
+            </div>
+            <div className="space-y-1.5 max-w-xs">
+              <h3 className="text-base font-extrabold text-slate-900">
+                Awaiting Provider Acceptance
+              </h3>
+              <p className="text-xs text-slate-500 leading-relaxed">
+                The chat box opens only when the service provider accepts the request from the service dashboard.
+              </p>
+            </div>
+            {currentUser?.role === 'provider' ? (
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const res = await fetch(`/api/bookings/${booking.id}/status`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ status: 'accepted', actorId: currentUser.id })
+                    });
+                    if (res.ok) {
+                      setBooking((prev) => (prev ? { ...prev, status: 'accepted' } : null));
+                    }
+                  } catch (e) {
+                    console.error('Accept error:', e);
+                  }
+                }}
+                className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition-all shadow-md cursor-pointer active:scale-95 flex items-center gap-1.5"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                <span>Accept Request from Service Dashboard</span>
+              </button>
+            ) : (
+              <div className="px-3.5 py-2 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 font-semibold">
+                Service specialist has received your booking and will accept shortly.
+              </div>
+            )}
+          </div>
+        ) : (
+          <>
+            {/* Messages List */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50/50 relative">
           {/* Store Drawer Overlay */}
           {isStoreOpen && (
             <div className="absolute inset-0 bg-white z-20 flex flex-col animate-in slide-in-from-right duration-200">
@@ -393,12 +457,12 @@ export const ChatDrawer: React.FC = () => {
                 </div>
                 <span
                   className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${
-                    inv.status === 'paid'
-                      ? 'bg-emerald-100 text-emerald-800'
-                      : 'bg-amber-100 text-amber-800'
+                    inv.status === 'paid' || inv.status === 'confirmed'
+                      ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                      : 'bg-amber-100 text-amber-800 border border-amber-300'
                   }`}
                 >
-                  {inv.status === 'paid' ? 'Paid & Escrowed' : 'Payment Due'}
+                  {inv.status === 'paid' || inv.status === 'confirmed' ? 'Confirmed' : 'Payment Due'}
                 </span>
               </div>
 
@@ -421,21 +485,29 @@ export const ChatDrawer: React.FC = () => {
                 </div>
               </div>
 
-              {inv.status === 'pending' && currentUser?.id === inv.customerId && (
-                <button
-                  type="button"
-                  disabled={payingInvId === inv.id}
-                  onClick={() => handlePayChatInvoice(inv.id)}
-                  className="mt-2 w-full py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
-                >
-                  <CreditCard className="w-3.5 h-3.5" />
-                  Pay ${inv.totalAmount.toFixed(2)} in Chat
-                </button>
+              {inv.status === 'pending' && (
+                currentUser?.role !== 'provider' ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPaymentModalInvoice(inv);
+                      setPaymentError(null);
+                    }}
+                    className="mt-2 w-full py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center justify-center gap-1.5 active:scale-98"
+                  >
+                    <CreditCard className="w-3.5 h-3.5" />
+                    Pay ${inv.totalAmount.toFixed(2)} in Chat
+                  </button>
+                ) : (
+                  <div className="mt-2 text-center text-xs font-semibold text-amber-700 bg-amber-50 py-1.5 rounded-lg border border-amber-200">
+                    Awaiting Customer Payment (${inv.totalAmount.toFixed(2)})
+                  </div>
+                )
               )}
-              {inv.status === 'paid' && (
-                <div className="mt-1 text-center text-xs font-bold text-emerald-600 flex items-center justify-center gap-1">
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                  Payment Settled
+              {(inv.status === 'paid' || inv.status === 'confirmed') && (
+                <div className="mt-1 text-center text-xs font-bold text-emerald-700 bg-emerald-50 py-1.5 rounded-lg border border-emerald-200 flex items-center justify-center gap-1">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                  Status: Confirmed ({inv.paymentMethod === 'credit' ? 'Paid by Credit' : 'Paid by Card'})
                 </div>
               )}
             </div>
@@ -571,15 +643,15 @@ export const ChatDrawer: React.FC = () => {
             ))}
           </div>
 
-          {/* Create Invoice Drawer */}
-          {showCreateInvoice && (
+          {/* Create Invoice Drawer - ONLY for service provider */}
+          {showCreateInvoice && currentUser?.role === 'provider' && (
             <div className="p-3 mb-2 bg-slate-50 rounded-2xl border border-slate-200">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs font-bold text-slate-900">Create In-Chat Invoice</span>
                 <button
                   type="button"
                   onClick={() => setShowCreateInvoice(false)}
-                  className="text-slate-400 hover:text-slate-600 text-xs"
+                  className="text-slate-400 hover:text-slate-600 text-xs cursor-pointer"
                 >
                   Cancel
                 </button>
@@ -607,7 +679,7 @@ export const ChatDrawer: React.FC = () => {
               <button
                 type="button"
                 onClick={handleCreateChatInvoice}
-                className="w-full py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700 transition-colors"
+                className="w-full py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700 transition-colors cursor-pointer"
               >
                 Send Invoice ${(Number(laborVal) + Number(materialsVal) + 1.0).toFixed(2)}
               </button>
@@ -615,15 +687,17 @@ export const ChatDrawer: React.FC = () => {
           )}
 
           <form onSubmit={handleSendMessage} className="flex items-center gap-2">
-            {/* Create Invoice Button */}
-            <button
-              type="button"
-              onClick={() => setShowCreateInvoice(!showCreateInvoice)}
-              className="p-2.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 border border-slate-200 rounded-xl transition-colors cursor-pointer"
-              title="Create In-Chat Invoice"
-            >
-              <FileText className="w-4 h-4" />
-            </button>
+            {/* Create Invoice Button - ONLY visible to service provider */}
+            {currentUser?.role === 'provider' && (
+              <button
+                type="button"
+                onClick={() => setShowCreateInvoice(!showCreateInvoice)}
+                className="p-2.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 border border-slate-200 rounded-xl transition-colors cursor-pointer shrink-0"
+                title="Create In-Chat Invoice (Provider Only)"
+              >
+                <FileText className="w-4 h-4" />
+              </button>
+            )}
 
             {/* Video File Picker */}
             <input
@@ -658,6 +732,124 @@ export const ChatDrawer: React.FC = () => {
             </button>
           </form>
         </div>
+      </>
+    )}
+
+    {/* Payment Method Modal (Credit vs Card) */}
+    {paymentModalInvoice && (
+      <div className="absolute inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
+        <div className="bg-white rounded-3xl p-5 max-w-xs w-full shadow-2xl border border-slate-200 space-y-4">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div>
+              <h4 className="text-sm font-black text-slate-900">Select Payment Method</h4>
+              <p className="text-[11px] text-slate-500">Pay Invoice #{paymentModalInvoice.id.slice(-6)}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setPaymentModalInvoice(null)}
+              className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="p-3 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-between">
+            <span className="text-xs font-semibold text-indigo-900">Total Amount Due:</span>
+            <span className="text-base font-extrabold text-indigo-700 font-mono">
+              ${paymentModalInvoice.totalAmount.toFixed(2)}
+            </span>
+          </div>
+
+          {paymentError && (
+            <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-[11px] text-rose-700 font-semibold flex items-center gap-1.5">
+              <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+              <span>{paymentError}</span>
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <p className="text-[11px] font-bold text-slate-700 uppercase tracking-wider">Choose Option:</p>
+
+            {/* Pay by Credit */}
+            <button
+              type="button"
+              onClick={() => setSelectedPaymentMethod('credit')}
+              className={`w-full p-3 rounded-2xl border text-left flex items-start gap-3 transition-all cursor-pointer ${
+                selectedPaymentMethod === 'credit'
+                  ? 'border-indigo-600 bg-indigo-50/60 shadow-xs ring-2 ring-indigo-500/20'
+                  : 'border-slate-200 hover:border-slate-300 bg-white'
+              }`}
+            >
+              <div
+                className={`p-2 rounded-xl shrink-0 ${
+                  selectedPaymentMethod === 'credit' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'
+                }`}
+              >
+                <Wallet className="w-4 h-4" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-900">Pay by Credit</span>
+                  <span className="text-[11px] font-mono font-bold text-slate-700">
+                    ${(currentUser?.walletBalance || 0).toFixed(2)}
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Deduct from Servexa wallet credit balance
+                </p>
+              </div>
+            </button>
+
+            {/* Pay by Card */}
+            <button
+              type="button"
+              onClick={() => setSelectedPaymentMethod('card')}
+              className={`w-full p-3 rounded-2xl border text-left flex items-start gap-3 transition-all cursor-pointer ${
+                selectedPaymentMethod === 'card'
+                  ? 'border-indigo-600 bg-indigo-50/60 shadow-xs ring-2 ring-indigo-500/20'
+                  : 'border-slate-200 hover:border-slate-300 bg-white'
+              }`}
+            >
+              <div
+                className={`p-2 rounded-xl shrink-0 ${
+                  selectedPaymentMethod === 'card' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'
+                }`}
+              >
+                <CreditCard className="w-4 h-4" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <span className="text-xs font-bold text-slate-900 block">Pay by Card</span>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Debit / Credit Card (Visa, MasterCard)
+                </p>
+              </div>
+            </button>
+          </div>
+
+          <div className="flex items-center gap-2 pt-2">
+            <button
+              type="button"
+              onClick={() => setPaymentModalInvoice(null)}
+              className="flex-1 py-2.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={payingInvId === paymentModalInvoice.id}
+              onClick={() => handlePayChatInvoice(paymentModalInvoice.id, selectedPaymentMethod)}
+              className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
+            >
+              {payingInvId === paymentModalInvoice.id ? (
+                <span>Processing...</span>
+              ) : (
+                <span>Confirm Pay</span>
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
       </div>
     </div>
   );
